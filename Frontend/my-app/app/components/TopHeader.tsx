@@ -1,39 +1,57 @@
-import { Search, Bell, Download } from 'lucide-react';
-import Image from 'next/image';
+type IntervalType = "cumulative" | "daily";
 
-export default function TopHeader() {
+type MetricOption = {
+  key: string;
+  label: string;
+  interval: IntervalType;
+};
+
+type TopbarProps = {
+  metrics: MetricOption[];
+  selectedMetric: string;
+  selectedInterval: IntervalType;
+  onMetricChange: (metric: string) => void;
+  onIntervalChange: (interval: IntervalType) => void;
+};
+
+export default function Topbar({
+  metrics,
+  selectedMetric,
+  selectedInterval,
+  onMetricChange,
+  onIntervalChange,
+}: TopbarProps) {
+  const filteredMetrics = metrics.filter((metric) => metric.interval === selectedInterval);
+
   return (
-    <header className="h-16 border-b border-gray-200 bg-white flex items-center justify-between px-6 sticky top-0 z-10">
-      {/* Search Bar */}
-      <div className="flex items-center bg-gray-100 rounded-md px-3 py-2 w-96 focus-within:ring-2 focus-within:ring-blue-100 transition-all">
-        <Search className="w-4 h-4 text-gray-400 mr-2" />
-        <input 
-          type="text" 
-          placeholder="Search countries, trends, or metrics (Cmd+K)" 
-          className="bg-transparent border-none outline-none text-sm w-full text-gray-700 placeholder:text-gray-400"
-        />
+    <header className="flex flex-wrap items-center gap-6 p-4 border-b border-slate-200 bg-slate-50/50">
+      <div className="flex flex-col">
+        <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">Metric</label>
+        <select
+          value={selectedMetric}
+          onChange={(event) => onMetricChange(event.target.value)}
+          className="w-64 px-3 py-2 text-sm bg-white border border-slate-300 rounded text-slate-700"
+        >
+          {filteredMetrics.map((metric) => (
+            <option key={metric.key} value={metric.key}>
+              {metric.label}
+            </option>
+          ))}
+        </select>
       </div>
-
-      {/* Right Actions */}
-      <div className="flex items-center gap-6">
-        <span className="text-sm text-gray-500 hidden lg:block">
-          Last updated: 12m ago
-        </span>
-        
-        <div className="flex items-center gap-4 border-l pl-6 border-gray-200">
-          <button className="text-gray-500 hover:text-gray-700 transition-colors">
-            <Bell className="w-5 h-5" />
-          </button>
-          <button className="text-gray-500 hover:text-gray-700 transition-colors">
-            <Download className="w-5 h-5" />
-          </button>
-          <button className="w-8 h-8 rounded-full overflow-hidden border border-gray-200">
-            {/* Placeholder for User Avatar */}
-            <div className="w-full h-full bg-gray-800 flex items-center justify-center text-white text-xs">
-              U
-            </div>
-          </button>
-        </div>
+      <div className="flex flex-col">
+        <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">Interval</label>
+        <select
+          value={selectedInterval}
+          onChange={(event) => onIntervalChange(event.target.value as IntervalType)}
+          className="w-48 px-3 py-2 text-sm bg-white border border-slate-300 rounded text-slate-700"
+        >
+          <option value="cumulative">Cumulative</option>
+          <option value="daily">Daily</option>
+        </select>
+      </div>
+      <div className="flex items-center mt-5 ml-auto">
+        <span className="text-sm text-slate-700">Loaded from compact OWID COVID dataset</span>
       </div>
     </header>
   );

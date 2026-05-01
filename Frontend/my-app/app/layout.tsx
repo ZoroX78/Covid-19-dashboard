@@ -24,7 +24,7 @@ export default function RootLayout({
           {/* Main App Area */}
           <div className="flex-1 flex flex-col min-w-0">
             {/* Global Header */}
-            <TopHeader />
+            
             
             {/* Main Content Area (Dynamic based on route) */}
             <main className="flex-1 p-6 md:p-8 overflow-y-auto">
