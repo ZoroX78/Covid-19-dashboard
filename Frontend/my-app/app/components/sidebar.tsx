@@ -1,15 +1,16 @@
 "use client";
 
-import React, { useState } from "react";
+import { useState } from "react";
 import { Search, ChevronDown, ListFilter } from "lucide-react";
 
 type SidebarProps = {
   countries: string[];
-  selectedCountry: string;
-  onSelectCountry: (country: string) => void;
+  selectedCountries: string[];
+  onToggleCountry: (country: string) => void;
+  onClearSelection: () => void;
 };
 
-export default function Sidebar({ countries, selectedCountry, onSelectCountry }: SidebarProps) {
+export default function Sidebar({ countries, selectedCountries, onToggleCountry, onClearSelection }: SidebarProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const filteredCountries = countries.filter((country) => country.toLowerCase().includes(searchQuery.toLowerCase()));
 
@@ -33,7 +34,7 @@ export default function Sidebar({ countries, selectedCountry, onSelectCountry }:
           />
         </div>
         <div className="flex justify-between items-center mt-3 text-sm text-slate-600">
-          <span>Sort by</span>
+          <span>Selected: {selectedCountries.length}</span>
           <button className="flex items-center space-x-1 border border-slate-300 px-2 py-1 rounded bg-white">
             <span>Country or region</span>
             <ChevronDown className="w-3 h-3" />
@@ -44,12 +45,12 @@ export default function Sidebar({ countries, selectedCountry, onSelectCountry }:
 
       <div className="flex-1 overflow-y-auto p-3 space-y-2">
         {filteredCountries.map((country) => {
-          const isSelected = selectedCountry === country;
+          const isSelected = selectedCountries.includes(country);
           return (
             <button
               key={country}
               type="button"
-              onClick={() => onSelectCountry(country)}
+              onClick={() => onToggleCountry(country)}
               className={`flex w-full items-center gap-3 p-2 rounded text-left transition-colors ${
                 isSelected ? "bg-blue-50 text-blue-700" : "hover:bg-slate-50 text-slate-700"
               }`}
@@ -66,7 +67,7 @@ export default function Sidebar({ countries, selectedCountry, onSelectCountry }:
       <div className="p-3 border-t border-slate-200 text-center bg-white">
         <button
           type="button"
-          onClick={() => onSelectCountry("")}
+          onClick={onClearSelection}
           className="text-sm text-blue-600 hover:underline flex items-center justify-center w-full"
         >
           <span className="mr-1">✕</span> Clear selection

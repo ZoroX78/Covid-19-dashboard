@@ -67,8 +67,9 @@ export default function CovidDataExplorer() {
   const [selectedMetric, setSelectedMetric] = useState<string>("total_cases");
   const [selectedMetricLabel, setSelectedMetricLabel] = useState<string>("Total cases");
   const [countries, setCountries] = useState<string[]>([]);
-  const [selectedCountry, setSelectedCountry] = useState<string>("");
+  const [selectedCountries, setSelectedCountries] = useState<string[]>([]);
   const [timeseriesRows, setTimeseriesRows] = useState<TimeseriesPoint[]>([]);
+  const primarySelectedCountry = selectedCountries[0] ?? "";
 
   const metricsByInterval = useMemo(
     () => metrics.filter((metric) => metric.interval === selectedInterval),
@@ -113,7 +114,7 @@ export default function CovidDataExplorer() {
       const json = (await response.json()) as CountriesResponse;
       setCountries(json.countries);
       if (json.countries.length > 0) {
-        setSelectedCountry((previous) => previous || json.countries[0]);
+        setSelectedCountries((previous) => (previous.length > 0 ? previous : [json.countries[0]]));
       }
     }
 
@@ -121,7 +122,8 @@ export default function CovidDataExplorer() {
   }, []);
 
   useEffect(() => {
-    if (!selectedCountry) {
+    if (!primarySelectedCountry) {
+      setTimeseriesRows([]);
       return;
     }
 
@@ -130,7 +132,7 @@ export default function CovidDataExplorer() {
         metric: effectiveMetric,
         interval: selectedInterval,
       });
-      const response = await fetch(`${backendBaseUrl}/api/timeseries/${encodeURIComponent(selectedCountry)}?${params.toString()}`);
+      const response = await fetch(`${backendBaseUrl}/api/timeseries/${encodeURIComponent(primarySelectedCountry)}?${params.toString()}`);
       if (!response.ok) {
         setTimeseriesRows([]);
         return;
@@ -142,7 +144,16 @@ export default function CovidDataExplorer() {
     }
 
     void loadCountryTimeseries();
-  }, [selectedCountry, selectedInterval, effectiveMetric]);
+  }, [primarySelectedCountry, selectedInterval, effectiveMetric]);
+
+  const toggleCountrySelection = (country: string) => {
+    setSelectedCountries((previous) => {
+      if (previous.includes(country)) {
+        return previous.filter((item) => item !== country);
+      }
+      return [...previous, country];
+    });
+  };
 
   const kpiData = useMemo(() => {
     const latest = timeseriesRows.at(-1);
@@ -214,7 +225,12 @@ export default function CovidDataExplorer() {
 
   return (
     <div className="flex h-screen bg-white text-slate-800 font-sans overflow-hidden">
-      <Sidebar countries={countries} selectedCountry={selectedCountry} onSelectCountry={setSelectedCountry} />
+      <Sidebar
+        countries={countries}
+        selectedCountries={selectedCountries}
+        onToggleCountry={toggleCountrySelection}
+        onClearSelection={() => setSelectedCountries([])}
+      />
       <main className="flex-1 flex flex-col min-w-0 h-full">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
@@ -247,11 +263,11 @@ export default function CovidDataExplorer() {
           onIntervalChange={setSelectedInterval}
         />
         <MainMap
-          selectedCountry={selectedCountry}
+          selectedCountries={selectedCountries}
           selectedMetric={effectiveMetric}
           selectedMetricLabel={selectedMetricLabel}
           selectedInterval={selectedInterval}
-          onSelectCountry={setSelectedCountry}
+          onToggleCountry={toggleCountrySelection}
         />
       </main>
     </div>

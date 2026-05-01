@@ -6,16 +6,21 @@ import { ComposableMap, Geographies, Geography } from "react-simple-maps";
 import { scaleLinear } from "d3-scale";
 import LineChartView, { type LinePoint } from "./LineChartView";
 import BarChartView, { type BarPoint } from "./BarChartView";
+import HistogramView, { type HistogramBin } from "./HistogramView";
 
 const geoUrl = "https://raw.githubusercontent.com/holtzy/D3-graph-gallery/master/DATA/world.geojson";
 const backendBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
 
-type TabId = "Table" | "Map" | "Line" | "Bar";
+type TabId = "Table" | "Map" | "Line" | "Bar" | "Histogram";
 
 type MapTimelineCountry = {
   country: string;
   code: string;
   values: Record<string, number>;
+  totalDeathsValues?: Record<string, number>;
+  remainingPopulationValues?: Record<string, number>;
+  populationReductionPctValues?: Record<string, number>;
+  populationValues?: Record<string, number>;
 };
 
 type MapTimelineResponse = {
@@ -24,11 +29,16 @@ type MapTimelineResponse = {
   data: MapTimelineCountry[];
 };
 
+type TimeseriesDataPoint = {
+  date: string;
+  value: number;
+};
+
 type TimeseriesResponse = {
   country: string;
   metric: string;
   metricLabel: string;
-  data: LinePoint[];
+  data: TimeseriesDataPoint[];
 };
 
 type BarGroupBy = "country" | "continent";
@@ -39,6 +49,14 @@ type BarRankingsResponse = {
   groupBy: BarGroupBy;
   topN: number;
   data: BarPoint[];
+};
+
+type HistogramResponse = {
+  metric: string;
+  metricLabel: string;
+  bins: number;
+  countryCount: number;
+  data: HistogramBin[];
 };
 
 type GeoProperties = {
@@ -77,20 +95,31 @@ function formatValue(value: number): string {
   return new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 }).format(value);
 }
 
+function formatPercent(value: number): string {
+  return `${value.toFixed(4)}%`;
+}
+
+function formatMetricValue(metricKey: string, value: number): string {
+  if (metricKey === "population_reduction_pct") {
+    return formatPercent(value);
+  }
+  return formatValue(value);
+}
+
 type MainMapProps = {
-  selectedCountry: string;
+  selectedCountries: string[];
   selectedMetric: string;
   selectedMetricLabel: string;
   selectedInterval: "cumulative" | "daily";
-  onSelectCountry: (country: string) => void;
+  onToggleCountry: (country: string) => void;
 };
 
 export default function MainMap({
-  selectedCountry,
+  selectedCountries,
   selectedMetric,
   selectedMetricLabel,
   selectedInterval,
-  onSelectCountry,
+  onToggleCountry,
 }: MainMapProps) {
   const [activeTab, setActiveTab] = useState<TabId>("Map");
   const [years, setYears] = useState<number[]>([]);
@@ -104,10 +133,31 @@ export default function MainMap({
   const [isLoadingBarData, setIsLoadingBarData] = useState<boolean>(false);
   const [errorMessage, setErrorMessage] = useState<string>("");
   const [barData, setBarData] = useState<BarPoint[]>([]);
-  const [selectedBarMetric, setSelectedBarMetric] = useState<"total_cases" | "total_deaths" | "total_vaccinations">("total_cases");
+  const [selectedBarMetric, setSelectedBarMetric] = useState<
+    | "total_cases"
+    | "total_deaths"
+    | "total_vaccinations"
+    | "remaining_population"
+    | "population_reduction_pct"
+    | "extreme_poverty"
+  >("total_cases");
   const [selectedBarGroupBy, setSelectedBarGroupBy] = useState<BarGroupBy>("country");
   const [selectedBarMetricLabel, setSelectedBarMetricLabel] = useState<string>("Total cases");
-  const [hoveredCountry, setHoveredCountry] = useState<{ code: string; name: string; value: number | null } | null>(null);
+  const [histogramData, setHistogramData] = useState<HistogramBin[]>([]);
+  const [isLoadingHistogramData, setIsLoadingHistogramData] = useState<boolean>(false);
+  const [histogramMetricLabel, setHistogramMetricLabel] = useState<string>("Median age");
+  const [hoveredCountry, setHoveredCountry] = useState<{
+    code: string;
+    name: string;
+    value: number | null;
+    totalDeaths: number | null;
+    remainingPopulation: number | null;
+    reductionPct: number | null;
+    population: number | null;
+  } | null>(null);
+  const [countryImpactByYear, setCountryImpactByYear] = useState<
+    Record<number, Record<string, { totalDeaths: number | null; remainingPopulation: number | null; reductionPct: number | null; population: number | null }>>
+  >({});
 
   useEffect(() => {
     async function loadInitialData() {
@@ -129,9 +179,14 @@ export default function MainMap({
 
         const sortedYears = [...timelineJson.years].sort((a, b) => a - b);
         const yearlyMap: Record<number, Record<string, number>> = {};
+        const yearlyImpact: Record<
+          number,
+          Record<string, { totalDeaths: number | null; remainingPopulation: number | null; reductionPct: number | null; population: number | null }>
+        > = {};
         const codeToCountry: Record<string, string> = {};
         sortedYears.forEach((year) => {
           yearlyMap[year] = {};
+          yearlyImpact[year] = {};
         });
 
         for (const entry of timelineJson.data) {
@@ -146,6 +201,19 @@ export default function MainMap({
               yearlyMap[year][code] = toNumber(value);
             }
           }
+          for (const year of sortedYears) {
+            const yearKey = String(year);
+            const totalDeaths = toNumber(entry.totalDeathsValues?.[yearKey] ?? Number.NaN);
+            const remainingPopulation = toNumber(entry.remainingPopulationValues?.[yearKey] ?? Number.NaN);
+            const reductionPct = toNumber(entry.populationReductionPctValues?.[yearKey] ?? Number.NaN);
+            const population = toNumber(entry.populationValues?.[yearKey] ?? Number.NaN);
+            yearlyImpact[year][code] = {
+              totalDeaths: Number.isFinite(totalDeaths) ? totalDeaths : null,
+              remainingPopulation: Number.isFinite(remainingPopulation) ? remainingPopulation : null,
+              reductionPct: Number.isFinite(reductionPct) ? reductionPct : null,
+              population: Number.isFinite(population) ? population : null,
+            };
+          }
         }
 
         setYears(sortedYears);
@@ -153,6 +221,7 @@ export default function MainMap({
           setCurrentYear(sortedYears[0]);
         }
         setMapDataByYear(yearlyMap);
+        setCountryImpactByYear(yearlyImpact);
         setCountryCodeToName(codeToCountry);
       } catch {
         setErrorMessage("Unable to load data from backend. Make sure FastAPI is running on port 8000.");
@@ -165,7 +234,8 @@ export default function MainMap({
   }, [selectedInterval, selectedMetric]);
 
   useEffect(() => {
-    if (!selectedCountry) {
+    if (selectedCountries.length === 0) {
+      setLineData([]);
       return;
     }
 
@@ -176,17 +246,28 @@ export default function MainMap({
           metric: selectedMetric,
           interval: selectedInterval,
         });
-        const response = await fetch(`${backendBaseUrl}/api/timeseries/${encodeURIComponent(selectedCountry)}?${params.toString()}`);
-        if (!response.ok) {
+        const responses = await Promise.all(
+          selectedCountries.map((country) =>
+            fetch(`${backendBaseUrl}/api/timeseries/${encodeURIComponent(country)}?${params.toString()}`),
+          ),
+        );
+        if (responses.some((response) => !response.ok)) {
           throw new Error("Failed to fetch line chart data.");
         }
-        const json = (await response.json()) as TimeseriesResponse;
-        setLineData(
-          json.data.map((point) => ({
-            date: point.date,
-            value: toNumber(point.value),
-          })),
-        );
+
+        const payloads = (await Promise.all(responses.map((response) => response.json()))) as TimeseriesResponse[];
+        const byDate: Record<string, LinePoint> = {};
+        for (const payload of payloads) {
+          for (const point of payload.data) {
+            if (!byDate[point.date]) {
+              byDate[point.date] = { date: point.date };
+            }
+            byDate[point.date][payload.country] = toNumber(point.value);
+          }
+        }
+
+        const merged = Object.values(byDate).sort((left, right) => left.date.localeCompare(right.date));
+        setLineData(merged);
       } catch {
         setLineData([]);
       } finally {
@@ -195,7 +276,7 @@ export default function MainMap({
     }
 
     void loadCountrySeries();
-  }, [selectedCountry, selectedInterval, selectedMetric]);
+  }, [selectedCountries, selectedInterval, selectedMetric]);
 
   useEffect(() => {
     if (activeTab !== "Bar") {
@@ -233,6 +314,31 @@ export default function MainMap({
   }, [activeTab, selectedBarMetric, selectedBarGroupBy]);
 
   useEffect(() => {
+    if (activeTab !== "Histogram") {
+      return;
+    }
+
+    async function loadHistogramData() {
+      try {
+        setIsLoadingHistogramData(true);
+        const response = await fetch(`${backendBaseUrl}/api/histogram-data?metric=median_age&bins=12`);
+        if (!response.ok) {
+          throw new Error("Failed to fetch histogram data.");
+        }
+        const json = (await response.json()) as HistogramResponse;
+        setHistogramMetricLabel(json.metricLabel);
+        setHistogramData(json.data);
+      } catch {
+        setHistogramData([]);
+      } finally {
+        setIsLoadingHistogramData(false);
+      }
+    }
+
+    void loadHistogramData();
+  }, [activeTab]);
+
+  useEffect(() => {
     if (!isPlaying || years.length === 0) {
       return;
     }
@@ -255,14 +361,16 @@ export default function MainMap({
   }, [isPlaying, years]);
 
   const currentYearMap = mapDataByYear[currentYear] ?? {};
-  const selectedCountryCode = useMemo(() => {
+  const currentYearImpact = countryImpactByYear[currentYear] ?? {};
+  const selectedCountryCodes = useMemo(() => {
+    const result = new Set<string>();
     for (const [code, country] of Object.entries(countryCodeToName)) {
-      if (country === selectedCountry) {
-        return code;
+      if (selectedCountries.includes(country)) {
+        result.add(code);
       }
     }
-    return "";
-  }, [countryCodeToName, selectedCountry]);
+    return result;
+  }, [countryCodeToName, selectedCountries]);
 
   const maxMapValue = useMemo(() => {
     let max = 0;
@@ -294,13 +402,25 @@ export default function MainMap({
   );
 
   const currentYearIndex = years.indexOf(currentYear);
-  const selectedCountryLabel = selectedCountry || "No country selected";
-  const headingMetricLabel = activeTab === "Bar" ? selectedBarMetricLabel : selectedMetricLabel;
+  const selectedCountryLabel =
+    selectedCountries.length === 0
+      ? "No country selected"
+      : selectedCountries.length <= 3
+        ? selectedCountries.join(", ")
+        : `${selectedCountries.slice(0, 3).join(", ")} +${selectedCountries.length - 3} more`;
+  const headingMetricLabel =
+    activeTab === "Bar"
+      ? selectedBarMetricLabel
+      : activeTab === "Histogram"
+        ? histogramMetricLabel
+        : selectedMetricLabel;
   const headingSuffix =
     activeTab === "Line"
       ? `${selectedCountryLabel}, up to ${currentYear || "N/A"}`
       : activeTab === "Bar"
         ? "latest available values"
+        : activeTab === "Histogram"
+          ? "distribution across countries"
         : `${currentYear || "N/A"}`;
 
   const handlePlayPause = () => {
@@ -343,6 +463,7 @@ export default function MainMap({
             { id: "Map" as const, icon: MapIcon },
             { id: "Line" as const, icon: LineChart },
             { id: "Bar" as const, icon: BarChart2 },
+            { id: "Histogram" as const, icon: BarChart2 },
           ].map((tab) => (
             <button
               key={tab.id}
@@ -371,7 +492,7 @@ export default function MainMap({
                   const countryValue = currentYearMap[geoCode];
                   const mapValue = countryValue ?? 0;
                   const fill = mapValue > 0 ? mapColorScale(mapValue) : "#E2E8F0";
-                  const isSelected = selectedCountryCode === geoCode;
+                  const isSelected = selectedCountryCodes.has(geoCode);
 
                   return (
                     <Geography
@@ -386,17 +507,22 @@ export default function MainMap({
                         pressed: { fill: "#92400E", outline: "none" },
                       }}
                       onMouseEnter={() => {
+                        const impact = currentYearImpact[geoCode];
                         setHoveredCountry({
                           code: geoCode,
                           name: countryCodeToName[geoCode] ?? resolveCountryName(geoName),
                           value: countryValue ?? null,
+                          totalDeaths: impact?.totalDeaths ?? null,
+                          remainingPopulation: impact?.remainingPopulation ?? null,
+                          reductionPct: impact?.reductionPct ?? null,
+                          population: impact?.population ?? null,
                         });
                       }}
                       onMouseLeave={() => setHoveredCountry(null)}
                       onClick={() => {
                         const matchedCountry = countryCodeToName[geoCode];
                         if (matchedCountry) {
-                          onSelectCountry(matchedCountry);
+                          onToggleCountry(matchedCountry);
                         }
                       }}
                     />
@@ -419,7 +545,25 @@ export default function MainMap({
               <div className="mt-1 text-slate-700">
                 {selectedMetricLabel}:{" "}
                 <span className="font-semibold">
-                  {hoveredCountry.value === null ? "No data" : formatValue(hoveredCountry.value)}
+                  {hoveredCountry.value === null ? "No data" : formatMetricValue(selectedMetric, hoveredCountry.value)}
+                </span>
+              </div>
+              <div className="mt-1 text-slate-700">
+                Total deaths:{" "}
+                <span className="font-semibold">
+                  {hoveredCountry.totalDeaths === null ? "No data" : formatValue(hoveredCountry.totalDeaths)}
+                </span>
+              </div>
+              <div className="mt-1 text-slate-700">
+                Remaining population:{" "}
+                <span className="font-semibold">
+                  {hoveredCountry.remainingPopulation === null ? "No data" : formatValue(hoveredCountry.remainingPopulation)}
+                </span>
+              </div>
+              <div className="mt-1 text-slate-700">
+                Population reduction:{" "}
+                <span className="font-semibold">
+                  {hoveredCountry.reductionPct === null ? "No data" : formatPercent(hoveredCountry.reductionPct)}
                 </span>
               </div>
             </div>
@@ -440,11 +584,16 @@ export default function MainMap({
         </div>
       )}
 
-        {activeTab === "Line" && (
-          <div className="flex-1 min-h-[400px] mb-8">
-            <LineChartView data={filteredLineData} isLoading={isLoadingLineData} metricLabel={selectedMetricLabel} />
-          </div>
-        )}
+      {activeTab === "Line" && (
+        <div className="flex-1 min-h-[400px] mb-8">
+            <LineChartView
+              data={filteredLineData}
+              isLoading={isLoadingLineData}
+              metricLabel={selectedMetricLabel}
+              countries={selectedCountries}
+            />
+        </div>
+      )}
 
       {activeTab === "Bar" && (
         <div className="flex-1 min-h-[400px] mb-8">
@@ -454,13 +603,24 @@ export default function MainMap({
               <select
                 value={selectedBarMetric}
                 onChange={(event) =>
-                  setSelectedBarMetric(event.target.value as "total_cases" | "total_deaths" | "total_vaccinations")
+                  setSelectedBarMetric(
+                    event.target.value as
+                      | "total_cases"
+                      | "total_deaths"
+                      | "total_vaccinations"
+                      | "remaining_population"
+                      | "population_reduction_pct"
+                      | "extreme_poverty",
+                  )
                 }
                 className="w-56 px-3 py-2 text-sm bg-white border border-slate-300 rounded text-slate-700"
               >
                 <option value="total_cases">Total cases</option>
                 <option value="total_deaths">Total deaths</option>
                 <option value="total_vaccinations">Total vaccinations</option>
+                <option value="remaining_population">Remaining population (after COVID deaths)</option>
+                <option value="population_reduction_pct">Population reduction (%)</option>
+                <option value="extreme_poverty">Extreme poverty (%)</option>
               </select>
             </div>
             <div className="flex flex-col">
@@ -481,6 +641,12 @@ export default function MainMap({
             metricLabel={selectedBarMetricLabel}
             groupBy={selectedBarGroupBy}
           />
+        </div>
+      )}
+
+      {activeTab === "Histogram" && (
+        <div className="flex-1 min-h-[400px] mb-8">
+          <HistogramView data={histogramData} isLoading={isLoadingHistogramData} metricLabel={histogramMetricLabel} />
         </div>
       )}
 
@@ -533,6 +699,8 @@ export default function MainMap({
               <strong>Note:</strong>{" "}
               {activeTab === "Bar"
                 ? "Bar rankings use each country's latest available value, then aggregate by continent when selected."
+                : activeTab === "Histogram"
+                  ? "Histogram groups all countries into median-age buckets so you can see the global age distribution."
                 : activeTab === "Map"
                   ? "Map shading uses ISO country codes from the backend data; use per-capita metrics (per 100k) for fair country-to-country comparison."
                   : "The selected timeline year controls map shading and trims the line chart to data up to that year."}

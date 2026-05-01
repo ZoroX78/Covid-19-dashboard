@@ -23,6 +23,7 @@ type BarChartViewProps = {
 };
 
 export default function BarChartView({ data, isLoading, metricLabel, groupBy }: BarChartViewProps) {
+  const isPercentageMetric = metricLabel.includes("%");
   return (
     <div className="w-full h-full min-h-[400px] relative">
       <ResponsiveContainer width="100%" height="100%">
@@ -39,7 +40,10 @@ export default function BarChartView({ data, isLoading, metricLabel, groupBy }: 
           />
           <Tooltip
             contentStyle={{ backgroundColor: "#fff", borderRadius: "4px", border: "1px solid #e2e8f0" }}
-            formatter={(value: number) => [new Intl.NumberFormat("en-US").format(value), metricLabel]}
+            formatter={(value: number) => [
+              isPercentageMetric ? `${value.toFixed(4)}%` : new Intl.NumberFormat("en-US").format(value),
+              metricLabel,
+            ]}
             labelFormatter={(label) => `${groupBy === "country" ? "Country" : "Continent"}: ${label}`}
           />
           <Bar dataKey="value" fill="#c2410c" radius={[0, 4, 4, 0]} isAnimationActive={false} />
