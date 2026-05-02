@@ -108,6 +108,7 @@ function formatMetricValue(metricKey: string, value: number): string {
 
 type MainMapProps = {
   selectedCountries: string[];
+  primaryCountry: string;
   selectedMetric: string;
   selectedMetricLabel: string;
   selectedInterval: "cumulative" | "daily";
@@ -116,6 +117,7 @@ type MainMapProps = {
 
 export default function MainMap({
   selectedCountries,
+  primaryCountry,
   selectedMetric,
   selectedMetricLabel,
   selectedInterval,
@@ -132,6 +134,8 @@ export default function MainMap({
   const [isLoadingLineData, setIsLoadingLineData] = useState<boolean>(false);
   const [isLoadingBarData, setIsLoadingBarData] = useState<boolean>(false);
   const [errorMessage, setErrorMessage] = useState<string>("");
+  const [refreshNonce, setRefreshNonce] = useState<number>(0);
+  const [lastUpdatedAt, setLastUpdatedAt] = useState<string>("");
   const [barData, setBarData] = useState<BarPoint[]>([]);
   const [selectedBarMetric, setSelectedBarMetric] = useState<
     | "total_cases"
@@ -223,6 +227,7 @@ export default function MainMap({
         setMapDataByYear(yearlyMap);
         setCountryImpactByYear(yearlyImpact);
         setCountryCodeToName(codeToCountry);
+        setLastUpdatedAt(new Date().toLocaleString());
       } catch {
         setErrorMessage("Unable to load data from backend. Make sure FastAPI is running on port 8000.");
       } finally {
@@ -231,7 +236,7 @@ export default function MainMap({
     }
 
     void loadInitialData();
-  }, [selectedInterval, selectedMetric]);
+  }, [selectedInterval, selectedMetric, refreshNonce]);
 
   useEffect(() => {
     if (selectedCountries.length === 0) {
@@ -268,7 +273,10 @@ export default function MainMap({
 
         const merged = Object.values(byDate).sort((left, right) => left.date.localeCompare(right.date));
         setLineData(merged);
+        setLastUpdatedAt(new Date().toLocaleString());
+        setErrorMessage("");
       } catch {
+        setErrorMessage("Unable to load line comparison data.");
         setLineData([]);
       } finally {
         setIsLoadingLineData(false);
@@ -276,7 +284,7 @@ export default function MainMap({
     }
 
     void loadCountrySeries();
-  }, [selectedCountries, selectedInterval, selectedMetric]);
+  }, [selectedCountries, selectedInterval, selectedMetric, refreshNonce]);
 
   useEffect(() => {
     if (activeTab !== "Bar") {
@@ -303,7 +311,10 @@ export default function MainMap({
             value: toNumber(item.value),
           })),
         );
+        setLastUpdatedAt(new Date().toLocaleString());
+        setErrorMessage("");
       } catch {
+        setErrorMessage("Unable to load bar chart data.");
         setBarData([]);
       } finally {
         setIsLoadingBarData(false);
@@ -311,7 +322,7 @@ export default function MainMap({
     }
 
     void loadBarRankings();
-  }, [activeTab, selectedBarMetric, selectedBarGroupBy]);
+  }, [activeTab, selectedBarMetric, selectedBarGroupBy, refreshNonce]);
 
   useEffect(() => {
     if (activeTab !== "Histogram") {
@@ -328,7 +339,10 @@ export default function MainMap({
         const json = (await response.json()) as HistogramResponse;
         setHistogramMetricLabel(json.metricLabel);
         setHistogramData(json.data);
+        setLastUpdatedAt(new Date().toLocaleString());
+        setErrorMessage("");
       } catch {
+        setErrorMessage("Unable to load histogram data.");
         setHistogramData([]);
       } finally {
         setIsLoadingHistogramData(false);
@@ -336,7 +350,7 @@ export default function MainMap({
     }
 
     void loadHistogramData();
-  }, [activeTab]);
+  }, [activeTab, refreshNonce]);
 
   useEffect(() => {
     if (!isPlaying || years.length === 0) {
@@ -408,6 +422,7 @@ export default function MainMap({
       : selectedCountries.length <= 3
         ? selectedCountries.join(", ")
         : `${selectedCountries.slice(0, 3).join(", ")} +${selectedCountries.length - 3} more`;
+  const primaryCountryLabel = primaryCountry || "None";
   const headingMetricLabel =
     activeTab === "Bar"
       ? selectedBarMetricLabel
@@ -445,6 +460,12 @@ export default function MainMap({
           <p className="text-sm text-slate-600 max-w-4xl leading-relaxed">
             Data is loaded from the compact OWID dataset. The timeline controls both map shading and the line chart range.
           </p>
+          <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-500">
+            <span>
+              Primary country: <strong className="text-slate-700">{primaryCountryLabel}</strong>
+            </span>
+            {lastUpdatedAt && <span>Last updated: {lastUpdatedAt}</span>}
+          </div>
         </div>
         <div className="bg-slate-900 text-white text-xs font-bold px-2 py-1 flex-shrink-0 text-center leading-tight">
           Our World
@@ -453,7 +474,18 @@ export default function MainMap({
         </div>
       </div>
 
-      {errorMessage && <div className="mb-4 rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700">{errorMessage}</div>}
+      {errorMessage && (
+        <div className="mb-4 rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700 flex items-center justify-between">
+          <span>{errorMessage}</span>
+          <button
+            type="button"
+            onClick={() => setRefreshNonce((value) => value + 1)}
+            className="ml-3 rounded border border-red-300 bg-white px-2 py-1 text-xs text-red-700 hover:bg-red-100"
+          >
+            Retry
+          </button>
+        </div>
+      )}
 
       {/* View Tabs */}
       <div className="flex flex-wrap items-center gap-4 border-b border-slate-200 mb-6 pb-2">
@@ -533,8 +565,8 @@ export default function MainMap({
           </ComposableMap>
 
           {isLoadingMapData && (
-            <div className="absolute inset-0 flex items-center justify-center text-sm text-slate-500 bg-white/70">
-              Loading map data...
+            <div className="absolute inset-0 bg-white/80 p-4">
+              <div className="h-full w-full animate-pulse rounded border border-slate-200 bg-slate-100" />
             </div>
           )}
 

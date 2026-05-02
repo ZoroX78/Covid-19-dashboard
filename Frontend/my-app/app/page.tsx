@@ -69,6 +69,9 @@ export default function CovidDataExplorer() {
   const [countries, setCountries] = useState<string[]>([]);
   const [selectedCountries, setSelectedCountries] = useState<string[]>([]);
   const [timeseriesRows, setTimeseriesRows] = useState<TimeseriesPoint[]>([]);
+  const [pageError, setPageError] = useState<string>("");
+  const [refreshKey, setRefreshKey] = useState<number>(0);
+  const [lastUpdatedAt, setLastUpdatedAt] = useState<string>("");
   const primarySelectedCountry = selectedCountries[0] ?? "";
 
   const metricsByInterval = useMemo(
@@ -87,11 +90,14 @@ export default function CovidDataExplorer() {
     async function loadMetrics() {
       const response = await fetch(`${backendBaseUrl}/api/metrics`);
       if (!response.ok) {
+        setPageError("Unable to load available metrics.");
         return;
       }
 
       const json = (await response.json()) as MetricsResponse;
       setMetrics(json.metrics);
+      setLastUpdatedAt(new Date().toLocaleString());
+      setPageError("");
 
       const defaultMetric = json.defaultMetricByInterval.cumulative;
       if (defaultMetric) {
@@ -102,24 +108,35 @@ export default function CovidDataExplorer() {
     }
 
     void loadMetrics();
-  }, []);
+  }, [refreshKey]);
 
   useEffect(() => {
     async function loadCountries() {
-      const response = await fetch(`${backendBaseUrl}/api/countries`);
+      const params = new URLSearchParams({
+        metric: effectiveMetric,
+        interval: selectedInterval,
+      });
+      const response = await fetch(`${backendBaseUrl}/api/countries?${params.toString()}`);
       if (!response.ok) {
+        setPageError("Unable to load countries list.");
         return;
       }
 
       const json = (await response.json()) as CountriesResponse;
       setCountries(json.countries);
-      if (json.countries.length > 0) {
-        setSelectedCountries((previous) => (previous.length > 0 ? previous : [json.countries[0]]));
-      }
+      setLastUpdatedAt(new Date().toLocaleString());
+      setPageError("");
+      setSelectedCountries((previous) => {
+        const filteredSelection = previous.filter((country) => json.countries.includes(country));
+        if (filteredSelection.length > 0) {
+          return filteredSelection;
+        }
+        return json.countries.length > 0 ? [json.countries[0]] : [];
+      });
     }
 
     void loadCountries();
-  }, []);
+  }, [refreshKey, selectedInterval, effectiveMetric]);
 
   useEffect(() => {
     if (!primarySelectedCountry) {
@@ -135,16 +152,19 @@ export default function CovidDataExplorer() {
       const response = await fetch(`${backendBaseUrl}/api/timeseries/${encodeURIComponent(primarySelectedCountry)}?${params.toString()}`);
       if (!response.ok) {
         setTimeseriesRows([]);
+        setPageError(`Unable to load KPI source data for ${primarySelectedCountry}.`);
         return;
       }
 
       const json = (await response.json()) as TimeseriesResponse;
       setSelectedMetricLabel(json.metricLabel);
       setTimeseriesRows(json.data);
+      setLastUpdatedAt(new Date().toLocaleString());
+      setPageError("");
     }
 
     void loadCountryTimeseries();
-  }, [primarySelectedCountry, selectedInterval, effectiveMetric]);
+  }, [primarySelectedCountry, selectedInterval, effectiveMetric, refreshKey]);
 
   const toggleCountrySelection = (country: string) => {
     setSelectedCountries((previous) => {
@@ -153,6 +173,27 @@ export default function CovidDataExplorer() {
       }
       return [...previous, country];
     });
+  };
+
+  const setPrimaryCountry = (country: string) => {
+    setSelectedCountries((previous) => {
+      if (!previous.includes(country)) {
+        return previous;
+      }
+      const remaining = previous.filter((item) => item !== country);
+      return [country, ...remaining];
+    });
+  };
+
+  const selectAllFilteredCountries = (filtered: string[]) => {
+    setSelectedCountries((previous) => {
+      const merged = new Set([...previous, ...filtered]);
+      return Array.from(merged);
+    });
+  };
+
+  const clearFilteredCountries = (filtered: string[]) => {
+    setSelectedCountries((previous) => previous.filter((country) => !filtered.includes(country)));
   };
 
   const kpiData = useMemo(() => {
@@ -228,20 +269,48 @@ export default function CovidDataExplorer() {
       <Sidebar
         countries={countries}
         selectedCountries={selectedCountries}
+        primaryCountry={primarySelectedCountry}
         onToggleCountry={toggleCountrySelection}
+        onSetPrimaryCountry={setPrimaryCountry}
         onClearSelection={() => setSelectedCountries([])}
+        onSelectAllFiltered={selectAllFilteredCountries}
+        onClearFiltered={clearFilteredCountries}
       />
       <main className="flex-1 flex flex-col min-w-0 h-full">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
             <h2 className="text-3xl font-bold text-gray-900">Global Overview</h2>
             <p className="text-gray-500 mt-1">High-level telemetry from the compact OWID COVID dataset.</p>
+            <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
+              <span className="rounded bg-slate-100 px-2 py-1 text-slate-700">
+                KPI source: <strong>{primarySelectedCountry || "None"}</strong>
+              </span>
+              {selectedCountries.length > 1 && (
+                <span className="rounded bg-blue-100 px-2 py-1 text-blue-700 font-semibold">
+                  Compare mode ({selectedCountries.length} countries)
+                </span>
+              )}
+              {lastUpdatedAt && <span className="text-slate-500">Last updated: {lastUpdatedAt}</span>}
+            </div>
           </div>
           <button className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-200 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors shadow-sm">
             <Calendar className="w-4 h-4 text-gray-500" />
             Last 7 Days
           </button>
         </div>
+
+        {pageError && (
+          <div className="mt-2 mb-2 rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 flex items-center justify-between">
+            <span>{pageError}</span>
+            <button
+              type="button"
+              onClick={() => setRefreshKey((value) => value + 1)}
+              className="ml-3 rounded border border-red-300 bg-white px-2 py-1 text-xs text-red-700 hover:bg-red-100"
+            >
+              Retry
+            </button>
+          </div>
+        )}
 
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
           {kpiData.map((kpi) => (
@@ -264,6 +333,7 @@ export default function CovidDataExplorer() {
         />
         <MainMap
           selectedCountries={selectedCountries}
+          primaryCountry={primarySelectedCountry}
           selectedMetric={effectiveMetric}
           selectedMetricLabel={selectedMetricLabel}
           selectedInterval={selectedInterval}

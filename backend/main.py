@@ -191,9 +191,15 @@ def load_and_clean_data():
 
 
 @app.get("/api/countries")
-def get_countries():
-    """Returns a list of unique countries for the Sidebar."""
-    countries = df["country"].dropna().unique().tolist()
+def get_countries(metric: Optional[str] = None, interval: str = "cumulative"):
+    """Returns countries that have data for the selected metric."""
+    selected_metric = resolve_metric(metric, interval)
+    countries = (
+        df[df[selected_metric].notna()]["country"]
+        .dropna()
+        .unique()
+        .tolist()
+    )
     return {"countries": sorted(countries)}
 
 

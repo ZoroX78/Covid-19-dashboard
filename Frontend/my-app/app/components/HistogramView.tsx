@@ -60,8 +60,8 @@ export default function HistogramView({ data, isLoading, metricLabel }: Histogra
       </ResponsiveContainer>
 
       {isLoading && (
-        <div className="absolute inset-0 flex items-center justify-center text-sm text-slate-500 pointer-events-none">
-          Loading histogram data...
+        <div className="absolute inset-0 bg-white/80 p-4 pointer-events-none">
+          <div className="h-full w-full animate-pulse rounded border border-slate-200 bg-slate-100" />
         </div>
       )}
 
